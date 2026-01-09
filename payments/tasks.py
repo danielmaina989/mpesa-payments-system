@@ -1,6 +1,10 @@
+import csv
 import json
 import logging
 from celery import shared_task
+from django.utils import timezone
+from pathlib import Path
+
 from .models import PaymentTransaction
 
 logger = logging.getLogger(__name__)
@@ -50,3 +54,44 @@ def process_stk_callback(self, payload):
 
     logger.info("Transaction %s processed → %s", checkout_id, tx.status)
 
+
+@shared_task
+def reconcile_transactions():
+    """
+    Periodic reconciliation task:
+    - Finds PENDING transactions older than X minutes
+    - Logs issues
+    - Exports a CSV for accounting
+    """
+    pending_tx = PaymentTransaction.objects.filter(status="PENDING")
+
+    if not pending_tx.exists():
+        logger.info("No pending transactions for reconciliation.")
+        return
+
+    logger.info("Reconciling %d pending transactions...", pending_tx.count())
+
+    for tx in pending_tx:
+        age_minutes = (timezone.now() - tx.created_at).total_seconds() / 60
+        if age_minutes > 10:
+            logger.warning(
+                "Transaction %s has been PENDING for %.1f minutes.", tx.id, age_minutes
+            )
+
+    csv_path = Path("reconciliation_report.csv")
+    with open(csv_path, "w", newline="") as csvfile:
+        fieldnames = ["id", "phone_number", "amount", "status", "mpesa_checkout_request_id", "created_at", "updated_at"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for tx in pending_tx:
+            writer.writerow({
+                "id": tx.id,
+                "phone_number": tx.phone_number,
+                "amount": tx.amount,
+                "status": tx.status,
+                "mpesa_checkout_request_id": tx.mpesa_checkout_request_id,
+                "created_at": tx.created_at,
+                "updated_at": tx.updated_at,
+            })
+
+    logger.info("Reconciliation report written to %s", csv_path)

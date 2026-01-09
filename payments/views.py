@@ -10,6 +10,8 @@ from decimal import Decimal
 
 import requests
 from django.conf import settings
+from django.shortcuts import redirect, get_object_or_404
+from django.contrib import messages
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -270,3 +272,23 @@ class ReplayCallbackView(APIView):
         process_stk_callback.delay(payload)
         return Response({"status": "replayed"}, status=200)
 
+
+def admin_retry_callback(request, transaction_id):
+    tx = get_object_or_404(PaymentTransaction, id=transaction_id)
+
+    if tx.status != "PENDING":
+        messages.warning(request, f"Transaction {tx.id} is not PENDING.")
+        return redirect("/admin/payments/paymenttransaction/")
+
+    payload = {
+        "Body": {
+            "stkCallback": {
+                "CheckoutRequestID": tx.mpesa_checkout_request_id,
+                "ResultCode": 0
+            }
+        }
+    }
+
+    process_stk_callback.delay(payload)
+    messages.success(request, f"Transaction {tx.id} enqueued for retry.")
+    return redirect("/admin/payments/paymenttransaction/")

@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.http import HttpResponse
 
+from payments.views import admin_retry_callback
+
 
 def index(request):
     return HttpResponse("<h1>M-Pesa Payments API</h1><p>Use /payments/stk-push/ to initiate STK push or /admin/ to access admin.</p>")
@@ -25,6 +27,8 @@ def index(request):
 
 urlpatterns = [
     path('', index, name='index'),
+    # Admin retry hook for manual retry button (must come before the admin site include)
+    path('admin/payments/paymenttransaction/<uuid:transaction_id>/retry/', admin_retry_callback, name='admin_retry_callback'),
     path('admin/', admin.site.urls),
     path('payments/', include('payments.urls')),
 ]
